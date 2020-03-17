@@ -38,11 +38,17 @@ exports.handler = async event => {
 
   const isStaticPage = pages.html.nonDynamic[uri];
   const isPublicFile = publicFiles[uri];
+  const isStaticPath = pages.staticPath[uri];
+  const isDataPath = uri.startsWith("_next/data/");
 
-  if (isStaticPage || isPublicFile) {
-    request.origin.s3.path = isStaticPage ? "/static-pages" : "/public";
+  if (isDataPath) {
+    return request;
+  }
 
-    if (isStaticPage) {
+  if (isStaticPage || isPublicFile || isStaticPath) {
+    request.origin.s3.path = isStaticPage || isStaticPath ? "/static-pages" : "/public";
+
+    if (isStaticPage || isStaticPath) {
       request.uri = uri + ".html";
     }
 

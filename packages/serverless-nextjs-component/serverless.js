@@ -80,6 +80,36 @@ class NextjsComponent extends Component {
     return sortedPagesManifest;
   }
 
+  async readPrerenderManifest(nextConfigPath) {
+    const prerenderManifestPath = join(nextConfigPath, ".next/prerender-manifest.json");
+    const hasPrerenderManifest = await fse.exists(prerenderManifestPath);
+    if (!hasPrerenderManifest) {
+      return Promise.reject(
+        "prerender-manifest not found."
+      );
+    }
+
+    const prerenderManifest = await fse.readJSON(prerenderManifestPath);
+
+    const staticPathRoutes = Object.keys(prerenderManifest.routes)
+      .map(route => ({
+        [route]: {
+          html: `pages${route}.html`,
+          json: {
+            file: `pages${route}.json`,
+            path: prerenderManifest.routes[route].dataRoute.slice(1),
+          }
+        }
+      }))
+      .reduce(function (obj, item) {
+      const key = Object.keys(item)[0]
+      obj[key] = item[key]; 
+      return obj;
+    }, {});
+
+    return staticPathRoutes;
+  }
+
   readDefaultBuildManifest(nextConfigPath) {
     return fse.readJSON(
       join(nextConfigPath, ".serverless_nextjs/default-lambda/manifest.json")
@@ -105,9 +135,11 @@ class NextjsComponent extends Component {
 
   async prepareBuildManifests(nextConfigPath) {
     const pagesManifest = await this.readPagesManifest(nextConfigPath);
+    const staticPathRoutes = await this.readPrerenderManifest(nextConfigPath);
 
     const defaultBuildManifest = {
       pages: {
+        staticPath: staticPathRoutes,
         ssr: {
           dynamic: {},
           nonDynamic: {}
@@ -312,12 +344,27 @@ class NextjsComponent extends Component {
       defaultBuildManifest.pages.html.dynamic
     ).map(x => x.file);
 
-    const uploadHtmlPages = [...nonDynamicHtmlPages, ...dynamicHtmlPages].map(
+    const staticPathPages = Object.values(
+      defaultBuildManifest.pages.staticPath
+    ).map(x => x.html);
+
+    const staticPathJson = Object.values(
+      defaultBuildManifest.pages.staticPath
+    ).map(x => x.json);
+
+    const uploadHtmlPages = [...nonDynamicHtmlPages, ...dynamicHtmlPages, ...staticPathPages].map(
       page =>
         bucket.upload({
           file: join(nextConfigPath, ".next/serverless", page),
           key: `static-pages/${page.replace("pages/", "")}`
         })
+    );
+
+    const uploadJson = staticPathJson.map(
+      json => bucket.upload({
+        file: join(nextConfigPath, ".next/serverless", json.file),
+        key: json.path
+      })
     );
 
     const assetsUpload = [
